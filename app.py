@@ -1,65 +1,67 @@
 import streamlit as st
+import json
 from PyPDF2 import PdfReader, PdfWriter
 from io import BytesIO
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase.pdfmetrics import registerFont
 
-# Set up the page
-st.set_page_config(page_title="Job Application Assistant")
-st.title("📄 Job Application Assistant")
+st.set_page_config(page_title="Smart Job Application Assistant")
+st.title("📄 Smart Job Application Assistant")
 
-st.write("Enter your personal details and upload a PDF form. The app will fill in your info and let you download the completed form.")
+# Load user profile
+try:
+    with open("user_profile.json", "r") as f:
+        user_profile = json.load(f)
+    st.success("✅ Personal info loaded from profile.")
+except FileNotFoundError:
+    st.error("❌ user_profile.json not found. Please upload it to your GitHub repo.")
+    user_profile = {}
 
-# Input fields
-name = st.text_input("Full Name")
-email = st.text_input("Email Address")
-phone = st.text_input("Phone Number")
+# Display stored info
+if user_profile:
+    st.subheader("Your Stored Information")
+    for key, value in user_profile.items():
+        st.write(f"**{key}**: {value}")
 
-# File uploader
-uploaded_file = st.file_uploader("Upload a PDF form", type=["pdf"])
+# Upload document
+st.subheader("Upload a Job Application Form")
+uploaded_file = st.file_uploader("Upload a PDF form with fillable fields", type=["pdf"])
 
-# Function to fill PDF
-def fill_pdf(base_pdf, name, email, phone):
-    packet = BytesIO()
-    can = canvas.Canvas(packet, pagesize=letter)
+# Fill form fields using stored info
+def fill_pdf_form_fields(pdf_file, data):
+    reader = PdfReader(pdf_file)
+    writer = PdfWriter()
 
-    # Example positions (you can adjust these)
-    can.drawString(100, 700, f"Name: {name}")
-    can.drawString(100, 680, f"Email: {email}")
-    can.drawString(100, 660, f"Phone: {phone}")
+    for page in reader.pages:
+        writer.add_page(page)
 
-    can.save()
-    packet.seek(0)
-
-    # Merge with original PDF
-    new_pdf = PdfReader(packet)
-    existing_pdf = PdfReader(base_pdf)
-    output = PdfWriter()
-
-    page = existing_pdf.pages[0]
-    page.merge_page(new_pdf.pages[0])
-    output.add_page(page)
-
-    for i in range(1, len(existing_pdf.pages)):
-        output.add_page(existing_pdf.pages[i])
+    writer.update_page_form_field_values(writer.pages[0], fields=data)
 
     output_stream = BytesIO()
-    output.write(output_stream)
+    writer.write(output_stream)
     output_stream.seek(0)
     return output_stream
 
+# Match fields (basic version)
+def match_fields(profile):
+    # Map common field names to profile keys
+    field_map = {
+        "Name": "Full Name",
+        "Email": "Email Address",
+        "Phone": "Phone Number",
+        "Address": "Address",
+        "City": "City",
+        "Postcode": "Postcode",
+        "Country": "Country"
+    }
+    return {form_field: profile.get(profile_key, "") for form_field, profile_key in field_map.items()}
+
 # Process and download
-if uploaded_file and name and email and phone:
-    filled_pdf = fill_pdf(uploaded_file, name, email, phone)
-    st.success("✅ Form filled successfully!")
+if uploaded_file and user_profile:
+    field_data = match_fields(user_profile)
+    filled_pdf = fill_pdf_form_fields(uploaded_file, field_data)
+    st.success("✅ Form fields filled using your stored info!")
     st.download_button(
         label="📥 Download Filled PDF",
         data=filled_pdf,
         file_name="filled_form.pdf",
         mime="application/pdf"
     )
-elif uploaded_file:
-    st.info("Please enter all your personal details to fill the form.")
